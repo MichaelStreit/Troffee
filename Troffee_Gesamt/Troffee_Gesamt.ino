@@ -26,7 +26,7 @@ SdFat SD;
 #include <Adafruit_ST7789.h> // Hardware-specific library for ST7789
 
 // Encoder
-#include <ClickEncoder.h>
+#include <Encoder.h>
 
 // ################################################################################
 // DEFINITIONEN
@@ -97,8 +97,10 @@ char PreisGanzeTasseSchwarz[5] = "";
 const int ENC_PIN_CLK = 27;
 const int ENC_PIN_DT = 25;
 const int ENC_PIN_SW = 23;
-int encoderPos = 0;
-int lastEncoderPos = 0;
+long encoderPos = 0;
+long lastEncoderPos = 0;
+
+Encoder encoder(ENC_PIN_DT,ENC_PIN_CLK);
 
 //__________________________________________________________________
 // Bitmaps
@@ -112,31 +114,42 @@ extern uint8_t tasse[];
 #define Tasse_height 67
 
 bool dampfswitch = false;
+//___________________________________________________________________
+// Time
+
+uint8_t u8MinuteOld = 0;
+uint8_t u8HourOld = 0;
+uint8_t u8DayOld = 0;
+uint8_t u8MonthOld = 0;
+uint16_t u16YearOld = 0;
+
 
 // ################################################################################
 // SETUP 
 // ################################################################################ 
 void setup() {
-  Serial.begin(115200);
+  //Serial.begin(115200);
   SetupLCD();
   LCD_SchreibeHeadline("Setup");
   LCD.drawLine(0, 40, 320, 40, ST77XX_WHITE);
+
   SetupRTC();
   SetupPN532();
   SetupSDCard();
   ReadNamesTXT();
   ReadConfigTXT();  
-  // KY-040 Drehknopf________________________________________________________/    
-  pinMode(ENC_PIN_CLK, INPUT_PULLUP);
-  pinMode(ENC_PIN_DT, INPUT_PULLUP);
+  // KY-040 Drehknopf________________________________________________________/  
+
+  //pinMode(ENC_PIN_CLK, INPUT_PULLUP);
+  //pinMode(ENC_PIN_DT, INPUT_PULLUP);
   pinMode(ENC_PIN_SW, INPUT_PULLUP);
 
-LCD_SchreibeTextInZeileXvon8(8,"Setup complete");
-LCD_ResetAlle8Zeilen();
-LCD_UpdateHeaderUhrzeit();
-LCD_SchreibeHeadline ("");
+  LCD_SchreibeTextInZeileXvon8(8,"Setup complete");
+  LCD_ResetAlle8Zeilen();
+  LCD_UpdateHeaderUhrzeit();
+  LCD_SchreibeHeadline ("");
 
- LCD.drawXBitmap(102, 50 + Dampf_height, tasse, Tasse_width, Tasse_height, ST77XX_WHITE);
+  LCD.drawXBitmap(102, 50 + Dampf_height, tasse, Tasse_width, Tasse_height, ST77XX_WHITE);
 
 } // Ende Setup
 // ################################################################################
@@ -295,38 +308,106 @@ void LCD_SchreibeHeadline (String Textneu) {
 
 void LCD_UpdateHeaderUhrzeit(){ 
   DateTime now = rtc.now();
-  String Zeit = now.timestamp('TIMESTAMP_DATE');
-  String HeaderUhrzeit = Zeit.substring(11,13) + ":" + Zeit.substring(14,16);
-  //Serial.print(HeaderUhrzeit);
-  //Serial.print(LCD_HeaderUhrzeitAlt);
-  if(HeaderUhrzeit.compareTo(LCD_HeaderUhrzeitAlt) != 0){
-    LCD.setTextSize(2,2);
-    LCD.setCursor(260,7);
-    LCD.setTextColor(ST77XX_BLACK);
-    LCD.print(LCD_HeaderUhrzeitAlt);
-    LCD.setCursor(260,7);
-    LCD.setTextColor(ST77XX_WHITE);
-    LCD.print(HeaderUhrzeit);
-    // LCD_HeaderUhrzeitAlt = HeaderUhrzeit;
-    HeaderUhrzeit.toCharArray(LCD_HeaderUhrzeitAlt, 6);
-    LCD.print(LCD_HeaderUhrzeitAlt);
-  }
   
-  String HeaderDatum = Zeit.substring(8,10) + "." + Zeit.substring(5,7)+ "." + Zeit.substring(0,4);
-  
-  Serial.println(HeaderDatum);
-  Serial.println(LCD_HeaderDatumAlt);
-  if(HeaderDatum.compareTo(LCD_HeaderDatumAlt) != 0){
-    LCD.setTextSize(1,1);
-    LCD.setCursor(260,30);
-    LCD.setTextColor(ST77XX_BLACK);
-    LCD.print(LCD_HeaderDatumAlt);
-    LCD.setCursor(260,30);
-    LCD.setTextColor(ST77XX_WHITE);
-    LCD.print(HeaderDatum);
-    // LCD_HeaderDatumAlt = HeaderDatum;
-    HeaderDatum.toCharArray(LCD_HeaderDatumAlt, 11);
+  uint8_t u8Minute = now.minute();
+  uint8_t u8Hour = now.hour();
+  uint8_t u8Day = now.day();
+  uint8_t u8Month = now.month();
+  uint16_t u16Year = now.year();
+
+  if (u8Minute != u8MinuteOld){
+    u8MinuteOld = LCD_UpdateMinute(u8Minute, u8MinuteOld);
   }
+  if (u8Hour != u8HourOld){
+    u8HourOld = LCD_UpdateHour(u8Hour, u8HourOld);
+  }
+  if (u8Day != u8DayOld){
+    u8DayOld = LCD_UpdateDay(u8Day, u8DayOld);
+  }
+  if (u8Month != u8MonthOld){
+    u8MonthOld = LCD_UpdateMonth(u8Month, u8MonthOld);
+  }
+  if (u16Year != u16YearOld){
+    u16YearOld = LCD_UpdateYear(u16Year, u16YearOld);
+  }
+}
+
+uint8_t LCD_UpdateMinute(uint8_t u8Min, uint8_t u8MinOld){
+  uint16_t u16Offset = 296;
+  LCD_UpdateTime(u8Min, u8MinOld, u16Offset);
+  return u8Min;
+}
+
+uint8_t LCD_UpdateHour(uint8_t u8Hou, uint8_t u8HouOld){
+  uint16_t u16Offset = 260;
+  LCD_UpdateTime(u8Hou, u8HouOld, u16Offset);
+  return u8Hou;
+}
+
+void LCD_UpdateTime(uint8_t u8NewTimeValue, uint8_t u8OldTimeValue, uint16_t u16Offset){
+  LCD.setTextSize(2,2);
+  LCD.setCursor(u16Offset,7);
+  LCD.setTextColor(ST77XX_BLACK);
+  if (u8OldTimeValue < 10) {
+     LCD.print('0');
+     LCD.setCursor(u16Offset + 12, 7);
+  }
+  LCD.print(u8OldTimeValue);
+  LCD.setCursor(u16Offset,7);
+  LCD.setTextColor(ST77XX_WHITE);
+  if (u8NewTimeValue < 10) {
+     LCD.print("0");
+     LCD.setCursor(u16Offset + 12, 7);
+  }
+  LCD.print(u8NewTimeValue);
+  //Dots between hour and minute
+  char sDouDot[] = ":";
+  LCD.setCursor(284, 7);
+  LCD.print(sDouDot);
+}
+
+uint8_t LCD_UpdateDay(uint8_t u8D, uint8_t u8DOld){
+  uint16_t u16Offset = 260;
+  LCD_UpdateDate(u8D, u8DOld, u16Offset);
+  return u8D;
+}
+
+uint8_t LCD_UpdateMonth(uint8_t u8M, uint8_t u8MOld){
+  uint16_t u16Offset = 278;
+  LCD_UpdateDate(u8M, u8MOld, u16Offset);
+  return u8M;
+}
+
+uint16_t LCD_UpdateYear(uint16_t u16Y, uint16_t u16YOld){
+  uint16_t u16Offset = 296;
+  LCD_UpdateDate(u16Y, u16YOld, u16Offset);
+  return u16Y;
+}
+
+void LCD_UpdateDate(uint16_t u16NewDateValue, uint16_t u16OldDateValue, uint16_t u16Offset){
+  LCD.setTextSize(1,1);
+  LCD.setCursor(u16Offset,30);
+  LCD.setTextColor(ST77XX_BLACK);
+  if (u16OldDateValue < 10) {
+     LCD.print("0");
+     LCD.setCursor(u16Offset + 6, 30);
+  }
+  LCD.print(u16OldDateValue);
+  LCD.setCursor(u16Offset,30);
+  LCD.setTextColor(ST77XX_WHITE);
+  if (u16NewDateValue < 10) {
+     LCD.print('0');
+     LCD.setCursor(u16Offset + 6, 30);
+  }
+  LCD.print(u16NewDateValue);
+
+  //Dots between day month and year
+  char sDot[] = ".";
+  LCD.setCursor(272, 30);
+  LCD.print(sDot);
+  LCD.setCursor(290, 30);
+  LCD.print(sDot);
+
 }
 
 int LCD_Buchungsscreen(){
@@ -352,7 +433,7 @@ int LCD_Buchungsscreen(){
   }
   // Titelzeile aufbauen mit Namen
   LCD.setTextColor(ST77XX_WHITE);
-  LCD.setTextSize(1,3);
+  LCD.setTextSize(2,3);
   LCD.setCursor(0,10);
   LCD.print(String(NameMapping[ZeileDerAktuellenKarte].Vorname) + " " + String(NameMapping[ZeileDerAktuellenKarte].Nachname));
 
@@ -378,7 +459,10 @@ int LCD_Buchungsscreen(){
   // Markierungslinie + durchnavigieren 
   while(AktionDrehknopf != 2){ // Bleibe solange in der Schleife, bis ein Knopfdruck kommt
     AktionDrehknopf = getEncoderDirection();
-    AktuelleMarkierung = updateActualPositionMenu(AktionDrehknopf, maxOptions, AktuelleMarkierung);
+    AktuelleMarkierung = updateValueRotEncoder(AktionDrehknopf, 1, maxOptions, AktuelleMarkierung);
+    if (AktionDrehknopf == 1 or AktionDrehknopf == -1) {
+      LCD_BuchungsscreenMarkierungsLinie(AktuelleMarkierung, maxOptions);
+    }
   }
   // Markierungslinien Clear
   LCD_BuchungsscreenMarkierungsLinieClearAll(maxOptions);
@@ -468,7 +552,7 @@ void SD_BuchungInFileSpeichern(int nummer){
   // #########################################
 
   int iActMenuPos = 0;
-  int iActRotaryPos;
+  int iActRotaryPos = 0;
   int iLines;
   if (nummer == -1){
     LCD_ResetAlle8Zeilen();
@@ -477,10 +561,17 @@ void SD_BuchungInFileSpeichern(int nummer){
     LCD_SchreibeTextInZeileXvon5(2, "Zurueck");
     while(iActRotaryPos != 2){ // Bleibe solange in der Schleife, bis ein Knopfdruck kommt
       iActRotaryPos = getEncoderDirection();
-      iActMenuPos = updateActualPositionMenu(iActRotaryPos, iLines, iActMenuPos);
+      iActMenuPos = updateValueRotEncoder(iActRotaryPos, 1, iLines, iActMenuPos);
+      if (iActRotaryPos == 1 or iActRotaryPos == -1) {
+        LCD_BuchungsscreenMarkierungsLinie(iActMenuPos, iLines);
+      }
     }
+    delay(300);
     if (iActMenuPos = 1){
       updateTimeAndDate();
+    }
+    if (iActMenuPos = 2){
+      nummer = 0;
     }
     LCD_BuchungsscreenMarkierungsLinieClearAll(iLines);
     LCD_ResetAlle5Zeilen();
@@ -551,7 +642,7 @@ void SD_BuchungInFileSpeichern(int nummer){
 
   // Titelzeile löschen
   LCD.setTextColor(ST77XX_BLACK);
-  LCD.setTextSize(1,3);
+  LCD.setTextSize(2,3);
   LCD.setCursor(0,10);
   LCD.print(String(NameMapping[ZeileDerAktuellenKarte].Vorname) + " " + String(NameMapping[ZeileDerAktuellenKarte].Nachname));
   ZeileDerAktuellenKarte = 0;
@@ -567,34 +658,24 @@ int getEncoderDirection() {
   // #########################################
 
   int dir = 0;
-  // Lesen der Pins des Encoders
-  bool encA = digitalRead(ENC_PIN_CLK);
-  bool encB = digitalRead(ENC_PIN_DT);
   bool encButton = digitalRead(ENC_PIN_SW);
   
-  //encoderPos = rotEncoder.read();
-  // Bestimmen der neuen Encoder-Position
-  if (encA == HIGH && encB == LOW) {
-    encoderPos++;
-  } else if (encA == LOW && encB == HIGH) {
-    encoderPos--;
-  }
+  encoderPos = encoder.read();
 
-  //if (lastEncoderPos != encoderPos)  {
-  //  lastEncoderPos = encoderPos;
-  //}
-  // Überprüfen der Drehrichtung
-  if (encoderPos > lastEncoderPos) {
-    dir = -1; // gegen den Uhrzeigersinn
-  } else if (encoderPos < lastEncoderPos) {
+  if (encoderPos < -3){
+    Serial.println("Links");
+    encoder.write(0);
+    dir = -1;  // gegen den Uhrzeigersinn
+  }
+  if (encoderPos > 3){
+    Serial.println("Rechts");
+    encoder.write(0);
     dir = 1;  // Uhrzeigersinn
   }
 
   if (encButton == 0){
     dir = 2;
   }
-  // Speichern der aktuellen Encoder-Position
-  lastEncoderPos = encoderPos;
 
   return dir;
 }
@@ -674,14 +755,11 @@ void LCD_BuildUpHomeScreen(){
 
 }
 
-int updateActualPositionMenu(int direction, int maxPos, int initPos){
-  int actPos = initPos;
+int updateValueRotEncoder(int direction, uint16_t minPos, uint16_t maxPos, uint16_t initPos){
+  uint16_t actPos = initPos;
   if(direction == 1){ // Rechtsdrehung erkannt;
     if(actPos < maxPos){ // Falls noch nicht am Ende angekommen
-      actPos++;
-      Serial.println("Drehen eine Richtung");
-      Serial.println("Init: " + String(actPos) + "maxPos: " + String(maxPos));
-      LCD_BuchungsscreenMarkierungsLinie(actPos, maxPos);
+      actPos = actPos + 1;
       }
       else{
         // mach nichts wenn linie schon ganz unten
@@ -689,9 +767,8 @@ int updateActualPositionMenu(int direction, int maxPos, int initPos){
       }
     }
   if(direction == -1){ // Linksdrehung erkannt;
-    if(actPos > 1){ // Falls noch nicht am Anfang angekommen
-      actPos--;
-      LCD_BuchungsscreenMarkierungsLinie(actPos, maxPos);
+    if(actPos > minPos){ // Falls noch nicht am Anfang angekommen
+      actPos = actPos - 1;
     }
     else{
       // mach nichts wenn linie schon ganz oben
@@ -702,9 +779,99 @@ int updateActualPositionMenu(int direction, int maxPos, int initPos){
 }
 
 void updateTimeAndDate(){
+  DateTime actualDateTime = rtc.now();
+  uint8_t u8CounterTimeAndDate = 0;
+  uint32_t u32TimeAndDate = millis(); 
+  bool bDisplayLine = true;
+  uint16_t u16XPosition;
+  uint8_t u8YPosition;
+  uint8_t u8Offset;
+  uint8_t u8Minute = actualDateTime.minute();
+  uint8_t u8Hour = actualDateTime.hour();
+  uint8_t u8Day = actualDateTime.day();
+  uint8_t u8Month = actualDateTime.month();
+  uint16_t u16Year = actualDateTime.year();
+  uint8_t u8Months31 [7] = {1,3,5,7,8,10,12};
+  uint8_t u8Months30 [4] = {4,6,9,11};
+  uint8_t u8Months28 [1] = {2};
+  int iActEncoder = 0;
+  while (u8CounterTimeAndDate < 5){
+    //Minutes
+    if (u8CounterTimeAndDate == 0){
+      u16XPosition = 296;
+      u8YPosition = 22;
+      u8Offset = 22;
+      iActEncoder = getEncoderDirection();
+      u8Minute = updateValueRotEncoder(iActEncoder, 0, 59, u8Minute);
+      if (u8Minute != u8MinuteOld){
+        u8MinuteOld = LCD_UpdateMinute(u8Minute,u8MinuteOld);
+      }
+    }
+    //Hour
+    if (u8CounterTimeAndDate == 1){
+      u16XPosition = 260;
+      iActEncoder = getEncoderDirection();
+      u8Hour = updateValueRotEncoder(iActEncoder, 0, 23, u8Hour);
+      if (u8Hour != u8HourOld){
+        u8HourOld = LCD_UpdateHour(u8Hour,u8HourOld);
+      }
+    }
+    //Month before as we need to know how much days it have
+    if (u8CounterTimeAndDate == 2){
+      u16XPosition = 278;
+      u8YPosition = 38;
+      u8Offset = 10;
+      iActEncoder = getEncoderDirection();
+      u8Month = updateValueRotEncoder(iActEncoder, 1, 12, u8Month);
+      if (u8Month != u8MonthOld){
+        u8MonthOld = LCD_UpdateMonth(u8Month,u8MonthOld);
+      }
+    }
+    //Day
+    if (u8CounterTimeAndDate == 3){
+      u16XPosition = 260;
+      iActEncoder = getEncoderDirection();
+      u8Day = updateValueRotEncoder(iActEncoder, 1, 31, u8Day);
+      if (u8Day != u8DayOld){
+        u8DayOld = LCD_UpdateDay(u8Day,u8DayOld);
+      }
+      
+    }
+    //Year
+    if (u8CounterTimeAndDate == 4){
+      u16XPosition = 295;
+      u8Offset = 25;
+      iActEncoder = getEncoderDirection();
+      u16Year = updateValueRotEncoder(iActEncoder, 2000, 2100, u16Year);
+      if (u16Year != u16YearOld){
+        Serial.println(u16YearOld);
+        Serial.println(u16Year);
+        u16YearOld = LCD_UpdateYear(u16Year,u16YearOld);
+      }
+    }
 
-
-
+    //Lineblink
+    if ((u32TimeAndDate <= millis() - 1000)){
+      if (bDisplayLine){
+        LCD.drawLine(u16XPosition, u8YPosition, u16XPosition + u8Offset, u8YPosition, ST77XX_WHITE);
+        bDisplayLine = false;
+      } else {
+        LCD.drawLine(u16XPosition, u8YPosition, u16XPosition + u8Offset, u8YPosition, ST77XX_BLACK);
+        bDisplayLine = true;
+      }
+      u32TimeAndDate = millis();
+    }
+    
+    if (getEncoderDirection() == 2){
+      u8CounterTimeAndDate++;
+      delay(300);
+      Serial.print(u8CounterTimeAndDate);
+      LCD.drawLine(u16XPosition, u8YPosition, u16XPosition + u8Offset, u8YPosition, ST77XX_BLACK);
+    } 
+    if (u8CounterTimeAndDate == 5) {
+      rtc.adjust(DateTime(u16Year, u8Month, u8Day, u8Hour, u8Minute, 0));
+    }
+  }
 }    
 
 void SetupLCD(){
@@ -879,6 +1046,15 @@ void ReadConfigTXT(){
   }
 }
 
+
+boolean arrayIncludeElement(uint8_t array[], uint8_t element) {
+  for (int i = 0; i < (sizeof(array)/4); i++) {
+    if (array[i] == element) {
+      return true;
+    }
+  }
+  return false;
+}
 
 // ################################################################################
 // SAMMLUNG 
